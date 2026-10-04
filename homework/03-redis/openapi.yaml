@@ -1,0 +1,481 @@
+openapi: 3.0.3
+info:
+  title: GameHub Redis API
+  version: 1.0.0
+  description: REST API учебного проекта GameHub на Flask и Redis.
+servers:
+  - url: http://localhost:5000
+paths:
+  /api/players/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PlayerId'
+    post:
+      operationId: upsertPlayer
+      summary: Создать или обновить профиль, сбросить кэш и добавить событие
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlayerInput'
+      responses:
+        '201':
+          description: Профиль создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Player'
+        '200':
+          description: Профиль обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Player'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    get:
+      operationId: getPlayer
+      summary: Получить профиль игрока с использованием кэша
+      responses:
+        '200':
+          description: Профиль найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Player'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/players/{id}/level:
+    parameters:
+      - $ref: '#/components/parameters/PlayerId'
+    patch:
+      operationId: changePlayerLevel
+      summary: Изменить уровень, сбросить кэш и добавить событие
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LevelChangeRequest'
+      responses:
+        '200':
+          description: Уровень обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LevelChangeResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/players/{id}/login:
+    parameters:
+      - $ref: '#/components/parameters/PlayerId'
+    post:
+      operationId: recordLogin
+      summary: Зафиксировать вход игрока
+      responses:
+        '200':
+          description: Счетчик увеличен; TTL равен оставшемуся времени окна в 24 часа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResult'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/leaderboard/score:
+    post:
+      operationId: addLeaderboardScore
+      summary: Начислить очки игроку турнира
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreRequest'
+      responses:
+        '200':
+          description: Очки добавлены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoreResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/leaderboard/top:
+    get:
+      operationId: getLeaderboardTop
+      summary: Получить лидеров турнира по убыванию очков
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Список лидеров
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaderboardResult'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/leaderboard/rank/{playerId}:
+    parameters:
+      - name: playerId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getLeaderboardRank
+      summary: Получить место игрока, начиная с первого места
+      responses:
+        '200':
+          description: Игрок присутствует в лидерборде
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RankResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/players/{id}/achievements:
+    parameters:
+      - $ref: '#/components/parameters/PlayerId'
+    post:
+      operationId: addAchievement
+      summary: Добавить достижение игроку
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AchievementRequest'
+      responses:
+        '200':
+          description: Достижение уже было у игрока
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AchievementWriteResult'
+        '201':
+          description: Достижение добавлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AchievementWriteResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/players/{id}/achievements/{name}:
+    parameters:
+      - $ref: '#/components/parameters/PlayerId'
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: hasAchievement
+      summary: Проверить наличие достижения
+      responses:
+        '200':
+          description: Результат проверки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AchievementMembership'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/players/{id1}/achievements/common/{id2}:
+    parameters:
+      - name: id1
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id2
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getCommonAchievements
+      summary: Получить пересечение достижений двух игроков
+      responses:
+        '200':
+          description: Общие достижения; массив может быть пустым
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommonAchievements'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/players/batch:
+    post:
+      operationId: createPlayersBatch
+      summary: Массово создать или обновить профили через pipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchRequest'
+      responses:
+        '200':
+          description: Профили обработаны
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/health:
+    get:
+      operationId: health
+      summary: Проверить, что процесс приложения работает
+      responses:
+        '200':
+          description: Приложение запущено
+  /api/ready:
+    get:
+      operationId: readiness
+      summary: Проверить доступность Redis через Sentinel
+      responses:
+        '200':
+          description: Redis доступен
+        '503':
+          description: Redis временно недоступен
+components:
+  parameters:
+    PlayerId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServiceUnavailable:
+      description: Redis/Sentinel временно недоступен
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    PlayerInput:
+      type: object
+      required: [name, level, region]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        level:
+          type: integer
+        region:
+          type: string
+          minLength: 1
+    Player:
+      type: object
+      required: [id, name, level, region, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        level:
+          type: integer
+        region:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    LevelChangeRequest:
+      type: object
+      required: [delta]
+      properties:
+        delta:
+          type: integer
+    LevelChangeResult:
+      type: object
+      required: [id, delta, level]
+      properties:
+        id:
+          type: string
+        delta:
+          type: integer
+        level:
+          type: integer
+    LoginResult:
+      type: object
+      required: [player_id, count, ttl_seconds]
+      properties:
+        player_id:
+          type: string
+        count:
+          type: integer
+        ttl_seconds:
+          type: integer
+          description: Оставшееся время до истечения счетчика
+    ScoreRequest:
+      type: object
+      required: [player_id, score]
+      properties:
+        player_id:
+          type: string
+        score:
+          type: number
+          description: Количество очков, прибавляемое к текущему результату
+    ScoreResult:
+      type: object
+      required: [player_id, score]
+      properties:
+        player_id:
+          type: string
+        score:
+          type: number
+          description: Текущая сумма очков игрока
+    LeaderboardResult:
+      type: object
+      required: [limit, items]
+      properties:
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+    LeaderboardEntry:
+      type: object
+      required: [player_id, score, rank]
+      properties:
+        player_id:
+          type: string
+        score:
+          type: number
+        rank:
+          type: integer
+          description: Место начиная с 1; большее число очков означает более высокое место
+    RankResult:
+      type: object
+      required: [player_id, score, rank]
+      properties:
+        player_id:
+          type: string
+        score:
+          type: number
+        rank:
+          type: integer
+    AchievementRequest:
+      type: object
+      required: [achievement_name]
+      properties:
+        achievement_name:
+          type: string
+          minLength: 1
+    AchievementWriteResult:
+      type: object
+      required: [player_id, achievement_name, added]
+      properties:
+        player_id:
+          type: string
+        achievement_name:
+          type: string
+        added:
+          type: boolean
+    AchievementMembership:
+      type: object
+      required: [player_id, achievement_name, has_achievement]
+      properties:
+        player_id:
+          type: string
+        achievement_name:
+          type: string
+        has_achievement:
+          type: boolean
+    CommonAchievements:
+      type: object
+      required: [player_ids, achievements]
+      properties:
+        player_ids:
+          type: array
+          items:
+            type: string
+          minItems: 2
+          maxItems: 2
+        achievements:
+          type: array
+          items:
+            type: string
+    BatchPlayer:
+      type: object
+      required: [id, name, level, region]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        level:
+          type: integer
+        region:
+          type: string
+    BatchRequest:
+      type: object
+      required: [players]
+      properties:
+        players:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/BatchPlayer'
+    BatchResult:
+      type: object
+      required: [processed_count, player_ids]
+      properties:
+        processed_count:
+          type: integer
+        player_ids:
+          type: array
+          items:
+            type: string
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string

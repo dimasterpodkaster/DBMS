@@ -1,0 +1,212 @@
+services:
+  redis-master:
+    image: redis:7-alpine
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis-master-data:/data
+    networks:
+      - redis-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "6379", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  redis-replica-1:
+    image: redis:7-alpine
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - ./redis/replica-1.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis-replica-1-data:/data
+    networks:
+      - redis-net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -h 127.0.0.1 -p 6379 PING | grep -q PONG && redis-cli -h 127.0.0.1 -p 6379 INFO replication | grep -q 'master_link_status:up'
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  redis-replica-2:
+    image: redis:7-alpine
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - ./redis/replica-2.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis-replica-2-data:/data
+    networks:
+      - redis-net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -h 127.0.0.1 -p 6379 PING | grep -q PONG && redis-cli -h 127.0.0.1 -p 6379 INFO replication | grep -q 'master_link_status:up'
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  sentinel-1:
+    image: redis:7-alpine
+    entrypoint: ["/bin/sh", "/usr/local/bin/start-sentinel.sh"]
+    ports:
+      - "127.0.0.1:26379:26379"
+    volumes:
+      - ./redis/sentinel/sentinel-1.conf:/usr/local/etc/redis/sentinel.conf.template:ro
+      - ./redis/sentinel/start-sentinel.sh:/usr/local/bin/start-sentinel.sh:ro
+      - sentinel-1-data:/data
+    networks:
+      - redis-net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "26379", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  sentinel-2:
+    image: redis:7-alpine
+    entrypoint: ["/bin/sh", "/usr/local/bin/start-sentinel.sh"]
+    ports:
+      - "127.0.0.1:26380:26379"
+    volumes:
+      - ./redis/sentinel/sentinel-2.conf:/usr/local/etc/redis/sentinel.conf.template:ro
+      - ./redis/sentinel/start-sentinel.sh:/usr/local/bin/start-sentinel.sh:ro
+      - sentinel-2-data:/data
+    networks:
+      - redis-net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "26379", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  sentinel-3:
+    image: redis:7-alpine
+    entrypoint: ["/bin/sh", "/usr/local/bin/start-sentinel.sh"]
+    ports:
+      - "127.0.0.1:26381:26379"
+    volumes:
+      - ./redis/sentinel/sentinel-3.conf:/usr/local/etc/redis/sentinel.conf.template:ro
+      - ./redis/sentinel/start-sentinel.sh:/usr/local/bin/start-sentinel.sh:ro
+      - sentinel-3-data:/data
+    networks:
+      - redis-net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "26379", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      REDIS_SENTINELS: "sentinel-1:26379,sentinel-2:26379,sentinel-3:26379"
+      REDIS_MASTER_NAME: mymaster
+      REDIS_SOCKET_TIMEOUT: "2.0"
+      REDIS_SOCKET_CONNECT_TIMEOUT: "2.0"
+      REDIS_RETRY_COUNT: "3"
+      REDIS_READ_FROM_REPLICAS: "true"
+      CHECK_REDIS_ON_START: "true"
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks:
+      - redis-net
+    depends_on:
+      sentinel-1:
+        condition: service_healthy
+      sentinel-2:
+        condition: service_healthy
+      sentinel-3:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  notifications-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.workers.notifications"]
+    environment:
+      REDIS_SENTINELS: "sentinel-1:26379,sentinel-2:26379,sentinel-3:26379"
+      REDIS_MASTER_NAME: mymaster
+      REDIS_SOCKET_TIMEOUT: "2.0"
+      REDIS_SOCKET_CONNECT_TIMEOUT: "2.0"
+      REDIS_RETRY_COUNT: "3"
+      NOTIFICATIONS_CONSUMER: notifications-worker-1
+    networks:
+      - redis-net
+    depends_on:
+      sentinel-1:
+        condition: service_healthy
+      sentinel-2:
+        condition: service_healthy
+      sentinel-3:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  redis-net:
+    driver: bridge
+
+volumes:
+  redis-master-data:
+  redis-replica-1-data:
+  redis-replica-2-data:
+  sentinel-1-data:
+  sentinel-2-data:
+  sentinel-3-data:
